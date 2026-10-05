@@ -39,3 +39,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# ffmpeg.wasm worker (copied from node_modules on install)
+/public/ffmpeg/
+
+# OpenNext / Cloudflare
+/.open-next/
+/.wrangler/
+.dev.vars*

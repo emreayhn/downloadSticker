@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Generated: ffmpeg.wasm worker copy and Cloudflare build output
+    "public/ffmpeg/**",
+    ".open-next/**",
+    ".wrangler/**",
   ]),
 ]);
 
