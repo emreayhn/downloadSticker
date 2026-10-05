@@ -659,7 +659,7 @@ export default function StickerApp() {
                 </button>
                 <button className="btn btn-main btn-big" type="button" onClick={onSaveToGallery} disabled={!src || !!busy}>
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M12 4v11M7 10l5 5 5-5" /><path d="M5 20h14" /></svg>
-                  Sticker&apos;ı video olarak kaydet
+                  Sticker&apos;ı fotoğraf olarak kaydet
                 </button>
                 <button className="btn-link" type="button" onClick={() => onDownload("webp")} disabled={!src || !!busy}>WhatsApp Web için sticker dosyası (.webp)</button>
                 <p className="note">WhatsApp&apos;ta GIF&apos;i kendine ya da herhangi birine gönder. Sonra GIF&apos;e dokunup paylaş düğmesinden &quot;Çıkartma oluştur&quot;u seç. İstersen çıkartmayı favorilerine ekleyebilirsin.</p>
