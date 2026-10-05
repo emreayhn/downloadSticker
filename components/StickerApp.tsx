@@ -20,6 +20,9 @@ import {
   type StickerResult,
 } from "@/lib/client/sticker";
 import { downloadBlob, saveAsPhoto, shareToWhatsApp } from "@/lib/client/share";
+import Intro from "./Intro";
+
+const INTRO_KEY = "yapistir:intro-seen";
 
 type Source = {
   item: MediaItem;
@@ -76,6 +79,7 @@ export default function StickerApp() {
   const [made, setMade] = useState<Partial<Record<Format, Made>>>({});
   const [sheet, setSheet] = useState<null | { format: Format; downloaded: boolean }>(null);
   const [toast, setToast] = useState("");
+  const [intro, setIntro] = useState(false);
 
   const stageRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -168,6 +172,26 @@ export default function StickerApp() {
       setError(e instanceof Error ? e.message : "Gönderi okunamadı.");
     }
   }, [selectMedia]);
+
+  // First visit only, and not when someone arrives with a link to convert.
+  useEffect(() => {
+    let seen = false;
+    try {
+      seen = localStorage.getItem(INTRO_KEY) === "1";
+    } catch {}
+    const q = new URLSearchParams(window.location.search);
+    if (seen || q.get("url") || q.get("text")) return;
+    const t = setTimeout(() => setIntro(true));
+    return () => clearTimeout(t);
+  }, []);
+
+  const closeIntro = useCallback(() => {
+    setIntro(false);
+    try {
+      localStorage.setItem(INTRO_KEY, "1");
+    } catch {}
+    document.getElementById("link")?.focus();
+  }, []);
 
   // Supports /?url=… (and ?text=… from a share target) so links can open the site pre-filled.
   useEffect(() => {
@@ -412,7 +436,7 @@ export default function StickerApp() {
           </span>
           Yapıştır
         </span>
-        <span className="pill">Ücretsiz · Uygulama yok</span>
+        <button className="help-btn" type="button" onClick={() => setIntro(true)}>Nasıl çalışır?</button>
       </header>
 
       <section className="hero">
@@ -693,6 +717,8 @@ export default function StickerApp() {
       )}
 
       <div className={`toast${toast ? " show" : ""}`} role="status">{toast}</div>
+
+      {intro && <Intro onClose={closeIntro} />}
 
       {sheet && sheetMade && (
         <div className="sheet-bg" onClick={(e) => e.target === e.currentTarget && setSheet(null)}>
