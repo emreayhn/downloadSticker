@@ -420,6 +420,9 @@ export default function StickerApp() {
 
   /* ---------- render ---------- */
 
+  // Follows the selected media right away, so the buttons are correct while it is still downloading.
+  const videoMode = src ? isVideo(src) : !!tweet && tweet.media[sel]?.kind !== "image";
+
   const stageW = src ? `min(100%, ${(440 * src.w) / src.h}px)` : undefined;
   const statusText =
     phase === "resolving" ? "Gönderi okunuyor…"
@@ -646,17 +649,17 @@ export default function StickerApp() {
                 <div className="bar"><i style={{ width: `${(busy.ratio ?? 0.08) * 100}%` }} /></div>
               </div>
             )}
-            {isVideo(src) ? (
+            {videoMode ? (
               <>
-                <button className="btn btn-wa" type="button" onClick={() => onWhatsApp("mp4")} disabled={!!busy}>
+                <button className="btn btn-wa" type="button" onClick={() => onWhatsApp("mp4")} disabled={!src || !!busy}>
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7" /><path d="M12 3v12M7 8l5-5 5 5" /></svg>
                   WhatsApp&apos;ta GIF olarak gönder
                 </button>
-                <button className="btn btn-main btn-big" type="button" onClick={() => onDownload("webp")} disabled={!!busy}>
+                <button className="btn btn-main btn-big" type="button" onClick={() => onDownload("webp")} disabled={!src || !!busy}>
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M12 4v11M7 10l5 5 5-5" /><path d="M5 20h14" /></svg>
                   Sticker&apos;ı indir (.webp)
                 </button>
-                <button className="btn-link" type="button" onClick={() => onDownload("mp4")} disabled={!!busy}>Video olarak indir (.mp4)</button>
+                <button className="btn-link" type="button" onClick={() => onDownload("mp4")} disabled={!src || !!busy}>Video olarak indir (.mp4)</button>
                 <p className="note">WhatsApp&apos;ta GIF&apos;i kendine ya da herhangi birine gönder. Sonra GIF&apos;e dokunup paylaş düğmesinden &quot;Çıkartma oluştur&quot;u seç. İstersen çıkartmayı favorilerine ekleyebilirsin.</p>
               </>
             ) : (
@@ -667,7 +670,7 @@ export default function StickerApp() {
                 </button>
                 <button className="btn btn-wa" type="button" onClick={() => onWhatsApp("webp")} disabled={!src || !!busy}>
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7" /><path d="M12 3v12M7 8l5-5 5 5" /></svg>
-                  WhatsApp&apos;ta aç
+                  WhatsApp&apos;ta fotoğraf olarak gönder
                 </button>
                 <p className="note">WhatsApp&apos;ta resmi kendine ya da herhangi birine gönder. Sonra resme dokunup paylaş düğmesinden &quot;Çıkartma oluştur&quot;u seç. İstersen çıkartmayı favorilerine ekleyebilirsin.</p>
               </>
@@ -693,23 +696,23 @@ export default function StickerApp() {
 
       <footer>Dönüştürme senin cihazında yapılır, dosyaların sunucuya yüklenmez. Yalnızca paylaşma hakkın olan içeriklerden sticker yap.</footer>
 
-      {src && (
+      {tweet && (
         <div className="mobile-bar">
-          {isVideo(src) ? (
-            <button className="btn btn-wa" type="button" onClick={() => onWhatsApp("mp4")} disabled={!!busy}>
+          {videoMode ? (
+            <button className="btn btn-wa" type="button" onClick={() => onWhatsApp("mp4")} disabled={!src || !!busy}>
               {busy ? `${busy.label}${busy.ratio !== undefined ? ` · %${Math.round(busy.ratio * 100)}` : "…"}` : "WhatsApp'ta GIF olarak gönder"}
             </button>
           ) : (
-            <button className="btn btn-wa" type="button" onClick={() => onWhatsApp("webp")} disabled={!!busy}>
-              {busy ? `${busy.label}…` : "WhatsApp'ta aç"}
+            <button className="btn btn-wa" type="button" onClick={() => onWhatsApp("webp")} disabled={!src || !!busy}>
+              {busy ? `${busy.label}…` : "WhatsApp'ta fotoğraf olarak gönder"}
             </button>
           )}
           <button
             className="btn btn-main"
             type="button"
-            aria-label={isVideo(src) ? "Video olarak indir" : "Sticker'ı fotoğraf olarak kaydet"}
-            onClick={() => (isVideo(src) ? onDownload("mp4") : onSavePhoto())}
-            disabled={!!busy}
+            aria-label={videoMode ? "Video olarak indir" : "Sticker'ı fotoğraf olarak kaydet"}
+            onClick={() => (videoMode ? onDownload("mp4") : onSavePhoto())}
+            disabled={!src || !!busy}
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M12 4v11M7 10l5 5 5-5" /><path d="M5 20h14" /></svg>
           </button>
