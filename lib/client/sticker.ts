@@ -169,6 +169,48 @@ export async function encodeStatic(canvas: HTMLCanvasElement, onProgress?: Progr
   return { blob, kb: Math.ceil(blob.size / 1024), note: "Statik WebP · 512×512" };
 }
 
+/* ---------- WhatsApp GIF (short square mp4) ---------- */
+
+// WhatsApp offers "send as GIF" for muted clips up to 6 seconds; such clips loop and autoplay in chat.
+export const MAX_GIF_SECONDS = 6;
+
+export async function makeMp4(
+  video: Blob,
+  o: { start: number; length: number; crop: Crop; caption: string },
+  onProgress?: Progress,
+): Promise<StickerResult> {
+  onProgress?.("Dönüştürücü yükleniyor (ilk sefer ~30 MB)");
+  const ff = await getFFmpeg();
+  await ff.writeFile("in.mp4", new Uint8Array(await video.arrayBuffer()));
+  const cap = await captionPng(o.caption);
+  if (cap) await ff.writeFile("cap.png", new Uint8Array(await cap.arrayBuffer()));
+  const onFF = ({ progress }: { progress: number }) => onProgress?.("Video hazırlanıyor", Math.max(0, Math.min(1, progress)));
+  ff.on("progress", onFF);
+  try {
+    const { x, y, size } = o.crop;
+    const crop = `crop=${Math.floor(size)}:${Math.floor(size)}:${Math.floor(x)}:${Math.floor(y)}`;
+    const length = Math.min(o.length, MAX_GIF_SECONDS);
+    const chain = `[0:v]${crop},scale=${SIZE}:${SIZE}${cap ? "[v];[v][1:v]overlay=0:0" : ""},format=yuv420p`;
+    await ff.exec([
+      "-y", "-ss", o.start.toFixed(2), "-t", length.toFixed(2), "-i", "in.mp4",
+      ...(cap ? ["-i", "cap.png"] : []),
+      "-filter_complex", chain,
+      "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "28",
+      "-movflags", "+faststart", "out.mp4",
+    ]);
+    const out = (await ff.readFile("out.mp4")) as Uint8Array;
+    if (!out.byteLength) throw new Error("Video hazırlanamadı.");
+    const blob = new Blob([out as BlobPart], { type: "video/mp4" });
+    const cut = o.length > MAX_GIF_SECONDS ? ` (GIF için ${MAX_GIF_SECONDS} sn'ye kısaltıldı)` : "";
+    return { blob, kb: Math.ceil(blob.size / 1024), note: `Sessiz MP4 · 512×512 · WhatsApp'ta GIF olarak gider${cut}` };
+  } finally {
+    ff.off("progress", onFF);
+    await ff.deleteFile("in.mp4").catch(() => {});
+    await ff.deleteFile("out.mp4").catch(() => {});
+    if (cap) await ff.deleteFile("cap.png").catch(() => {});
+  }
+}
+
 /* ---------- animated (video) stickers ---------- */
 
 // `rel` is the rough output size relative to the first attempt, used to jump straight

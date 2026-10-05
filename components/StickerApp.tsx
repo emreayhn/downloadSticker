@@ -10,6 +10,7 @@ import {
   estimateAnimatedKb,
   fetchMedia,
   makeAnimated,
+  makeMp4,
   removeBackground,
   MAX_ANIMATED_KB,
   MAX_SECONDS,
@@ -31,7 +32,8 @@ type Source = {
 };
 
 type Busy = { label: string; ratio?: number };
-type Made = { key: string; res: StickerResult; url: string; name: string };
+type Format = "webp" | "mp4";
+type Made = { key: string; format: Format; res: StickerResult; url: string; name: string };
 
 const LENGTHS = [2, 3, 5, 8];
 
@@ -71,8 +73,8 @@ export default function StickerApp() {
   const [cutoutBusy, setCutoutBusy] = useState<Busy | null>(null);
   const [caption, setCaption] = useState("");
   const [busy, setBusy] = useState<Busy | null>(null);
-  const [made, setMade] = useState<Made | null>(null);
-  const [sheet, setSheet] = useState<null | "downloaded" | "ready">(null);
+  const [made, setMade] = useState<Partial<Record<Format, Made>>>({});
+  const [sheet, setSheet] = useState<null | { format: Format; downloaded: boolean }>(null);
   const [toast, setToast] = useState("");
 
   const stageRef = useRef<HTMLDivElement>(null);
@@ -118,7 +120,7 @@ export default function StickerApp() {
       return null;
     });
     setCutoutBmp(null);
-    setMade(null);
+    setMade({});
     setSrcProgress(0);
     try {
       const blob = await fetchMedia(item.url, (p) => token === loadToken.current && setSrcProgress(p));
@@ -282,11 +284,18 @@ export default function StickerApp() {
   const key = src
     ? JSON.stringify({ u: src.item.url, crop, start, len, cut: useCut, caption: caption.trim() })
     : "";
-  const fresh = made && made.key === key ? made : null;
+  const freshFor = (f: Format) => {
+    const m = made[f];
+    return m && m.key === key ? m : null;
+  };
+  // Images only ever produce WebP.
+  const fmtFor = (f: Format): Format => (isVideo(src) ? f : "webp");
 
-  const generate = async (): Promise<Made | null> => {
+  const generate = async (wanted: Format): Promise<Made | null> => {
     if (!src) return null;
-    if (fresh) return fresh;
+    const format = fmtFor(wanted);
+    const cached = freshFor(format);
+    if (cached) return cached;
     if (!isVideo(src) && cutout && !cutoutBmp) {
       say("Arka plan silme bitmeden sticker hazırlanamaz. Birkaç saniye bekle.");
       return null;
@@ -295,17 +304,20 @@ export default function StickerApp() {
     try {
       let res: StickerResult;
       const onP = (label: string, ratio?: number) => setBusy({ label, ratio });
+      const clip = { start, length: len, crop, caption };
       if (isVideo(src)) {
-        res = await makeAnimated(src.blob, { start, length: len, crop, caption }, onP);
+        res = format === "mp4" ? await makeMp4(src.blob, clip, onP) : await makeAnimated(src.blob, clip, onP);
       } else {
         const c = document.createElement("canvas");
         c.width = c.height = SIZE;
         composeStatic(c.getContext("2d")!, useCut ? cutoutBmp! : src.bitmap!, src.w, crop, { cutout: useCut, caption });
         res = await encodeStatic(c, onP);
       }
-      if (made) URL.revokeObjectURL(made.url);
-      const m: Made = { key, res, url: URL.createObjectURL(res.blob), name: `sticker-${tweet?.author || "x"}-${Date.now().toString(36)}.webp` };
-      setMade(m);
+      const old = made[format];
+      if (old) URL.revokeObjectURL(old.url);
+      const name = `${format === "mp4" ? "gif" : "sticker"}-${tweet?.author || "x"}-${Date.now().toString(36)}.${format}`;
+      const m: Made = { key, format, res, url: URL.createObjectURL(res.blob), name };
+      setMade((prev) => ({ ...prev, [format]: m }));
       return m;
     } catch (e) {
       console.error("sticker failed", e);
@@ -316,24 +328,32 @@ export default function StickerApp() {
     }
   };
 
-  const onDownload = async () => {
-    const m = await generate();
+  const onDownload = async (f: Format) => {
+    const m = await generate(f);
     if (!m) return;
     downloadBlob(m.res.blob, m.name);
-    setSheet("downloaded");
+    setSheet({ format: m.format, downloaded: true });
   };
 
-  const onWhatsApp = async () => {
-    if (fresh) return share(fresh, false); // tap is still "live", share sheet may open
-    const m = await generate();
-    if (m) setSheet("ready"); // conversion took too long for the tap to count; ask for one more tap
+  const onWhatsApp = async (f: Format) => {
+    const cached = freshFor(fmtFor(f));
+    if (cached) return share(cached, false); // tap is still "live", share sheet may open
+    const m = await generate(f);
+    if (m) setSheet({ format: m.format, downloaded: false }); // conversion took too long for the tap to count; ask for one more tap
   };
 
   const share = async (m: Made, downloaded: boolean) => {
     const out = await shareToWhatsApp(m.res.blob, m.name, downloaded);
     setSheet(null);
-    if (out === "shared") say("Gönderildi. Sohbette sticker'a basılı tut ve \"Favorilere ekle\" de.");
-    else if (out === "downloaded") say("Dosya indi ve WhatsApp Web açıldı. Sticker'ı sohbete sürükleyip bırakabilirsin.");
+    if (out === "shared") {
+      say(m.format === "mp4"
+        ? "Gönderildi. Sohbette GIF kendi kendine döner."
+        : "Gönderildi. WhatsApp bunu fotoğraf olarak gönderir; sticker için bilgisayardan WhatsApp Web'i kullan.");
+    } else if (out === "downloaded") {
+      say(m.format === "mp4"
+        ? "Video indi ve WhatsApp Web açıldı. Videoyu sohbete sürükleyip bırakabilirsin."
+        : "Dosya indi ve WhatsApp Web açıldı. Sohbete sürükleyip bırakınca sticker olarak gider.");
+    }
   };
 
   useEffect(() => {
@@ -349,12 +369,16 @@ export default function StickerApp() {
   const meter = (() => {
     if (!src) return null;
     if (isVideo(src)) {
-      const kb = fresh ? fresh.res.kb : estimateAnimatedKb(len);
-      return { kb, max: MAX_ANIMATED_KB, note: fresh ? fresh.res.note : "Hareketli WebP · 512×512 · tahmini boyut" };
+      const w = freshFor("webp"), g = freshFor("mp4");
+      if (g && !w) return { kb: g.res.kb, max: 0, note: g.res.note };
+      const kb = w ? w.res.kb : estimateAnimatedKb(len);
+      return { kb, max: MAX_ANIMATED_KB, note: w ? w.res.note : "Sticker: hareketli WebP · 512×512 · tahmini boyut" };
     }
-    const kb = fresh ? fresh.res.kb : useCut ? 40 : 70;
-    return { kb, max: MAX_STATIC_KB, note: fresh ? fresh.res.note : `Statik WebP · 512×512${useCut ? " · şeffaf arka plan" : ""} · tahmini` };
+    const w = freshFor("webp");
+    const kb = w ? w.res.kb : useCut ? 40 : 70;
+    return { kb, max: MAX_STATIC_KB, note: w ? w.res.note : `Statik WebP · 512×512${useCut ? " · şeffaf arka plan" : ""} · tahmini` };
   })();
+  const sheetMade = sheet ? freshFor(sheet.format) : null;
 
   /* ---------- render ---------- */
 
@@ -566,31 +590,50 @@ export default function StickerApp() {
             <div className="meter">
               <div className="row">
                 <span className="lbl">Dosya boyutu</span>
-                <span>{meter.kb} / {meter.max} KB</span>
+                <span>{meter.max ? `${meter.kb} / ${meter.max} KB` : `${meter.kb} KB`}</span>
               </div>
-              <div className={`bar${meter.kb / meter.max > 0.9 ? " warn" : ""}`}>
-                <i style={{ width: `${Math.min(100, (meter.kb / meter.max) * 100)}%` }} />
-              </div>
+              {meter.max > 0 && (
+                <div className={`bar${meter.kb / meter.max > 0.9 ? " warn" : ""}`}>
+                  <i style={{ width: `${Math.min(100, (meter.kb / meter.max) * 100)}%` }} />
+                </div>
+              )}
               <p className="note">{meter.note}</p>
             </div>
           )}
 
           <div className="actions">
-            <button className="btn btn-main btn-big" type="button" onClick={onDownload} disabled={!src || !!busy}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M12 4v11M7 10l5 5 5-5" /><path d="M5 20h14" /></svg>
-              Sticker&apos;ı indir
-            </button>
             {busy && (
               <div className="busy" role="status">
                 <span className="note">{busy.label}{busy.ratio !== undefined ? ` · %${Math.round(busy.ratio * 100)}` : "…"}</span>
                 <div className="bar"><i style={{ width: `${(busy.ratio ?? 0.08) * 100}%` }} /></div>
               </div>
             )}
-            <button className="btn btn-wa" type="button" onClick={onWhatsApp} disabled={!src || !!busy}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7" /><path d="M12 3v12M7 8l5-5 5 5" /></svg>
-              WhatsApp&apos;ta aç
-            </button>
-            <p className="note">İndirince WhatsApp&apos;ı tek dokunuşla açabileceğin bir pencere çıkar. Telefonda paylaşım menüsünden WhatsApp&apos;ı seçersin.</p>
+            {isVideo(src) ? (
+              <>
+                <button className="btn btn-wa" type="button" onClick={() => onWhatsApp("mp4")} disabled={!!busy}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7" /><path d="M12 3v12M7 8l5-5 5 5" /></svg>
+                  WhatsApp&apos;ta GIF olarak gönder
+                </button>
+                <button className="btn btn-main btn-big" type="button" onClick={() => onDownload("webp")} disabled={!!busy}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M12 4v11M7 10l5 5 5-5" /><path d="M5 20h14" /></svg>
+                  Sticker&apos;ı indir (.webp)
+                </button>
+                <button className="btn-link" type="button" onClick={() => onDownload("mp4")} disabled={!!busy}>Video olarak indir (.mp4)</button>
+                <p className="note">GIF sohbette kendi kendine döner. Gerçek sticker için .webp dosyasını bilgisayarda WhatsApp Web&apos;de sohbete sürükle; telefonda üstüne basılı tutup &quot;Favorilere ekle&quot; de.</p>
+              </>
+            ) : (
+              <>
+                <button className="btn btn-main btn-big" type="button" onClick={() => onDownload("webp")} disabled={!src || !!busy}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M12 4v11M7 10l5 5 5-5" /><path d="M5 20h14" /></svg>
+                  Sticker&apos;ı indir
+                </button>
+                <button className="btn btn-wa" type="button" onClick={() => onWhatsApp("webp")} disabled={!src || !!busy}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7" /><path d="M12 3v12M7 8l5-5 5 5" /></svg>
+                  WhatsApp&apos;ta aç
+                </button>
+                <p className="note">Telefondan paylaşınca WhatsApp fotoğraf olarak gönderir. Sticker olarak göndermek için dosyayı bilgisayarda WhatsApp Web&apos;de sohbete sürükle.</p>
+              </>
+            )}
           </div>
         </aside>
       </section>
@@ -598,7 +641,7 @@ export default function StickerApp() {
       <section className="how" aria-label="Nasıl çalışır">
         <div className="step"><span className="n">1</span><div><h3>Linki yapıştır</h3><p>X&apos;te gönderinin altındaki paylaş düğmesinden &quot;Linki kopyala&quot; de.</p></div></div>
         <div className="step"><span className="n">2</span><div><h3>Seç ve kırp</h3><p>Videoda en iyi 2-3 saniyeyi, resimde kare alanı seç. İstersen yazı ekle.</p></div></div>
-        <div className="step"><span className="n">3</span><div><h3>WhatsApp&apos;a gönder</h3><p>Tek dokunuşla paylaş. Sohbette sticker&apos;a basılı tut, &quot;Favorilere ekle&quot; de.</p></div></div>
+        <div className="step"><span className="n">3</span><div><h3>WhatsApp&apos;a gönder</h3><p>Video tek dokunuşla GIF olarak gider. Gerçek sticker için .webp dosyasını WhatsApp Web&apos;e sürükle.</p></div></div>
       </section>
 
       <div className="specs" aria-label="WhatsApp sticker kuralları">
@@ -614,22 +657,30 @@ export default function StickerApp() {
 
       <div className={`toast${toast ? " show" : ""}`} role="status">{toast}</div>
 
-      {sheet && fresh && (
+      {sheet && sheetMade && (
         <div className="sheet-bg" onClick={(e) => e.target === e.currentTarget && setSheet(null)}>
           <div className="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
             <button className="x" type="button" aria-label="Kapat" onClick={() => setSheet(null)}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
             </button>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={fresh.url} alt="Hazırlanan sticker" className={useCut ? "cut" : "boxed"} />
+            {sheetMade.format === "mp4" ? (
+              <video src={sheetMade.url} className="boxed" autoPlay muted loop playsInline />
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={sheetMade.url} alt="Hazırlanan sticker" className={useCut ? "cut" : "boxed"} />
+            )}
             <div>
-              <h2 id="sheetTitle">{sheet === "downloaded" ? "Sticker'ın indi!" : "Sticker'ın hazır!"}</h2>
+              <h2 id="sheetTitle">
+                {sheetMade.format === "mp4" ? (sheet.downloaded ? "Videon indi!" : "GIF'in hazır!") : sheet.downloaded ? "Sticker'ın indi!" : "Sticker'ın hazır!"}
+              </h2>
               <p>
-                sticker.webp · {fresh.res.kb} KB
-                {sheet === "downloaded" ? " cihazına kaydedildi." : "."} Şimdi WhatsApp&apos;a gönder, sohbette üstüne basılı tutup &quot;Favorilere ekle&quot; de.
+                {sheetMade.format === "mp4" ? "gif.mp4" : "sticker.webp"} · {sheetMade.res.kb} KB{sheet.downloaded ? " cihazına kaydedildi." : "."}{" "}
+                {sheetMade.format === "mp4"
+                  ? "WhatsApp'ta sohbeti seç. Video ekranında GIF düğmesi varsa ona bas, sonra gönder."
+                  : "Bilgisayardaysan WhatsApp Web'de sohbete sürükle, sticker olarak gider."}
               </p>
             </div>
-            <button ref={waRef} className="btn btn-wa" type="button" onClick={() => share(fresh, sheet === "downloaded")}>
+            <button ref={waRef} className="btn btn-wa" type="button" onClick={() => share(sheetMade, sheet.downloaded)}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7" /><path d="M12 3v12M7 8l5-5 5 5" /></svg>
               WhatsApp&apos;ta aç
             </button>
