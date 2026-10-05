@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "main": ".open-next/worker.js",
-  "name": "yapistir",
+  "name": "downloadsticker",
   "compatibility_date": "2026-10-01",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "assets": {
@@ -12,7 +12,7 @@
     {
       // Self-reference service binding, must match the worker name
       "binding": "WORKER_SELF_REFERENCE",
-      "service": "yapistir"
+      "service": "downloadsticker"
     }
   ],
   "observability": { "enabled": true }
