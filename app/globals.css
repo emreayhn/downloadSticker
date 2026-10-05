@@ -175,3 +175,19 @@ footer { font-size: 0.82rem; color: var(--lede); border-top: 1px solid var(--dot
 @media (prefers-reduced-motion: reduce) {
   *, .sheet, .sheet-bg { transition: none !important; animation: none !important; }
 }
+
+/* phone: actions pinned to the bottom so nobody has to scroll past the editor */
+.mobile-bar { display: none; }
+@media (max-width: 860px) {
+  .mobile-bar {
+    display: flex; gap: 10px; position: fixed; left: 0; right: 0; bottom: 0; z-index: 8;
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+    background: color-mix(in srgb, var(--paper) 88%, transparent);
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    border-top: 1px solid var(--line);
+  }
+  .mobile-bar .btn-wa { flex: 1; min-width: 0; padding: 15px 16px; font-size: 1rem; }
+  .mobile-bar .btn-main { flex: none; width: 54px; padding: 0; }
+  .wrap.has-bar { padding-bottom: 84px; }
+  .wrap.has-bar ~ .toast, .has-bar .toast { bottom: calc(92px + env(safe-area-inset-bottom, 0px)); }
+}

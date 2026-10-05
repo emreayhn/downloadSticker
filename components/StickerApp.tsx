@@ -347,8 +347,8 @@ export default function StickerApp() {
     setSheet(null);
     if (out === "shared") {
       say(m.format === "mp4"
-        ? "Gönderildi. Sohbette GIF kendi kendine döner."
-        : "Gönderildi. WhatsApp bunu fotoğraf olarak gönderir; sticker için bilgisayardan WhatsApp Web'i kullan.");
+        ? "Gönderildi. Şimdi GIF'e dokun, paylaş düğmesinden \"Çıkartma oluştur\"u seç."
+        : "Gönderildi. Şimdi resme dokun, paylaş düğmesinden \"Çıkartma oluştur\"u seç.");
     } else if (out === "downloaded") {
       say(m.format === "mp4"
         ? "Video indi ve WhatsApp Web açıldı. Videoyu sohbete sürükleyip bırakabilirsin."
@@ -390,7 +390,7 @@ export default function StickerApp() {
       : "Linki yapıştırman yeterli, gerisini sayfa halleder.";
 
   return (
-    <div className="wrap">
+    <div className={`wrap${src ? " has-bar" : ""}`}>
       <header className="top">
         <span className="logo">
           <span className="logo-badge" aria-hidden="true">
@@ -619,7 +619,7 @@ export default function StickerApp() {
                   Sticker&apos;ı indir (.webp)
                 </button>
                 <button className="btn-link" type="button" onClick={() => onDownload("mp4")} disabled={!!busy}>Video olarak indir (.mp4)</button>
-                <p className="note">GIF sohbette kendi kendine döner. Gerçek sticker için .webp dosyasını bilgisayarda WhatsApp Web&apos;de sohbete sürükle; telefonda üstüne basılı tutup &quot;Favorilere ekle&quot; de.</p>
+                <p className="note">WhatsApp&apos;ta GIF&apos;i kendine ya da herhangi birine gönder. Sonra GIF&apos;e dokunup paylaş düğmesinden &quot;Çıkartma oluştur&quot;u seç. İstersen çıkartmayı favorilerine ekleyebilirsin.</p>
               </>
             ) : (
               <>
@@ -631,7 +631,7 @@ export default function StickerApp() {
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7" /><path d="M12 3v12M7 8l5-5 5 5" /></svg>
                   WhatsApp&apos;ta aç
                 </button>
-                <p className="note">Telefondan paylaşınca WhatsApp fotoğraf olarak gönderir. Sticker olarak göndermek için dosyayı bilgisayarda WhatsApp Web&apos;de sohbete sürükle.</p>
+                <p className="note">WhatsApp&apos;ta resmi kendine ya da herhangi birine gönder. Sonra resme dokunup paylaş düğmesinden &quot;Çıkartma oluştur&quot;u seç. İstersen çıkartmayı favorilerine ekleyebilirsin.</p>
               </>
             )}
           </div>
@@ -641,7 +641,7 @@ export default function StickerApp() {
       <section className="how" aria-label="Nasıl çalışır">
         <div className="step"><span className="n">1</span><div><h3>Linki yapıştır</h3><p>X&apos;te gönderinin altındaki paylaş düğmesinden &quot;Linki kopyala&quot; de.</p></div></div>
         <div className="step"><span className="n">2</span><div><h3>Seç ve kırp</h3><p>Videoda en iyi 2-3 saniyeyi, resimde kare alanı seç. İstersen yazı ekle.</p></div></div>
-        <div className="step"><span className="n">3</span><div><h3>WhatsApp&apos;a gönder</h3><p>Video tek dokunuşla GIF olarak gider. Gerçek sticker için .webp dosyasını WhatsApp Web&apos;e sürükle.</p></div></div>
+        <div className="step"><span className="n">3</span><div><h3>WhatsApp&apos;a gönder</h3><p>GIF&apos;i kendine ya da birine gönder, paylaş düğmesinden &quot;Çıkartma oluştur&quot;u seç.</p></div></div>
       </section>
 
       <div className="specs" aria-label="WhatsApp sticker kuralları">
@@ -654,6 +654,29 @@ export default function StickerApp() {
       </div>
 
       <footer>Dönüştürme senin cihazında yapılır, dosyaların sunucuya yüklenmez. Yalnızca paylaşma hakkın olan içeriklerden sticker yap.</footer>
+
+      {src && (
+        <div className="mobile-bar">
+          {isVideo(src) ? (
+            <button className="btn btn-wa" type="button" onClick={() => onWhatsApp("mp4")} disabled={!!busy}>
+              {busy ? `${busy.label}${busy.ratio !== undefined ? ` · %${Math.round(busy.ratio * 100)}` : "…"}` : "WhatsApp'ta GIF olarak gönder"}
+            </button>
+          ) : (
+            <button className="btn btn-wa" type="button" onClick={() => onWhatsApp("webp")} disabled={!!busy}>
+              {busy ? `${busy.label}…` : "WhatsApp'ta aç"}
+            </button>
+          )}
+          <button
+            className="btn btn-main"
+            type="button"
+            aria-label={isVideo(src) ? "Video olarak indir" : "Sticker'ı indir"}
+            onClick={() => onDownload(isVideo(src) ? "mp4" : "webp")}
+            disabled={!!busy}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M12 4v11M7 10l5 5 5-5" /><path d="M5 20h14" /></svg>
+          </button>
+        </div>
+      )}
 
       <div className={`toast${toast ? " show" : ""}`} role="status">{toast}</div>
 
@@ -676,8 +699,8 @@ export default function StickerApp() {
               <p>
                 {sheetMade.format === "mp4" ? "gif.mp4" : "sticker.webp"} · {sheetMade.res.kb} KB{sheet.downloaded ? " cihazına kaydedildi." : "."}{" "}
                 {sheetMade.format === "mp4"
-                  ? "WhatsApp'ta sohbeti seç. Video ekranında GIF düğmesi varsa ona bas, sonra gönder."
-                  : "Bilgisayardaysan WhatsApp Web'de sohbete sürükle, sticker olarak gider."}
+                  ? "WhatsApp'ta GIF'i kendine ya da herhangi birine gönder. Sonra GIF'e dokunup paylaş düğmesinden \"Çıkartma oluştur\"u seç. İstersen çıkartmayı favorilerine ekleyebilirsin."
+                  : "WhatsApp'ta resmi kendine ya da herhangi birine gönder. Sonra resme dokunup paylaş düğmesinden \"Çıkartma oluştur\"u seç. İstersen çıkartmayı favorilerine ekleyebilirsin."}
               </p>
             </div>
             <button ref={waRef} className="btn btn-wa" type="button" onClick={() => share(sheetMade, sheet.downloaded)}>
