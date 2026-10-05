@@ -37,3 +37,25 @@ export async function shareToWhatsApp(blob: Blob, filename: string, alreadyDownl
   window.open("https://web.whatsapp.com/", "_blank", "noopener");
   return "downloaded";
 }
+
+function isIOS() {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+}
+
+/**
+ * Puts the image into the phone's photo gallery so WhatsApp can pick it up.
+ * iPhone: downloads land in Files, so open the share sheet ("Save Image" goes to Photos).
+ * Android and desktop: a normal download shows up in the gallery / Downloads.
+ */
+export async function saveAsPhoto(blob: Blob, filename: string): Promise<ShareOutcome> {
+  if (isIOS() && canShareFiles(blob, filename)) {
+    try {
+      await navigator.share({ files: [new File([blob], filename, { type: blob.type })] });
+      return "shared";
+    } catch (e) {
+      if ((e as DOMException)?.name === "AbortError") return "cancelled";
+    }
+  }
+  downloadBlob(blob, filename);
+  return "downloaded";
+}

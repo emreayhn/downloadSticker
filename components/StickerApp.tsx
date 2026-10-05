@@ -19,7 +19,7 @@ import {
   type Crop,
   type StickerResult,
 } from "@/lib/client/sticker";
-import { downloadBlob, shareToWhatsApp } from "@/lib/client/share";
+import { downloadBlob, saveAsPhoto, shareToWhatsApp } from "@/lib/client/share";
 
 type Source = {
   item: MediaItem;
@@ -32,7 +32,7 @@ type Source = {
 };
 
 type Busy = { label: string; ratio?: number };
-type Format = "webp" | "mp4";
+type Format = "webp" | "mp4" | "png";
 type Made = { key: string; format: Format; res: StickerResult; url: string; name: string };
 
 const LENGTHS = [2, 3, 5, 8];
@@ -289,7 +289,7 @@ export default function StickerApp() {
     return m && m.key === key ? m : null;
   };
   // Images only ever produce WebP.
-  const fmtFor = (f: Format): Format => (isVideo(src) ? f : "webp");
+  const fmtFor = (f: Format): Format => (isVideo(src) ? (f === "png" ? "webp" : f) : f === "png" ? "png" : "webp");
 
   const generate = async (wanted: Format): Promise<Made | null> => {
     if (!src) return null;
@@ -311,7 +311,13 @@ export default function StickerApp() {
         const c = document.createElement("canvas");
         c.width = c.height = SIZE;
         composeStatic(c.getContext("2d")!, useCut ? cutoutBmp! : src.bitmap!, src.w, crop, { cutout: useCut, caption });
-        res = await encodeStatic(c, onP);
+        if (format === "png") {
+          // PNG, because phone galleries (iPhone Photos in particular) do not accept WebP.
+          const blob = await new Promise<Blob>((r) => c.toBlob((b) => r(b!), "image/png"));
+          res = { blob, kb: Math.ceil(blob.size / 1024), note: "PNG · 512×512 · galeriye kaydedilir" };
+        } else {
+          res = await encodeStatic(c, onP);
+        }
       }
       const old = made[format];
       if (old) URL.revokeObjectURL(old.url);
@@ -333,6 +339,14 @@ export default function StickerApp() {
     if (!m) return;
     downloadBlob(m.res.blob, m.name);
     setSheet({ format: m.format, downloaded: true });
+  };
+
+  const onSavePhoto = async () => {
+    const m = await generate("png");
+    if (!m) return;
+    const out = await saveAsPhoto(m.res.blob, m.name);
+    if (out === "shared") say("Kaydettiysen WhatsApp'ta kendine gönder, sonra paylaş düğmesinden \"Çıkartma oluştur\"u seç.");
+    else if (out === "downloaded") setSheet({ format: "png", downloaded: true });
   };
 
   const onWhatsApp = async (f: Format) => {
@@ -623,9 +637,9 @@ export default function StickerApp() {
               </>
             ) : (
               <>
-                <button className="btn btn-main btn-big" type="button" onClick={() => onDownload("webp")} disabled={!src || !!busy}>
+                <button className="btn btn-main btn-big" type="button" onClick={onSavePhoto} disabled={!src || !!busy}>
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M12 4v11M7 10l5 5 5-5" /><path d="M5 20h14" /></svg>
-                  Sticker&apos;ı indir
+                  Sticker&apos;ı fotoğraf olarak kaydet
                 </button>
                 <button className="btn btn-wa" type="button" onClick={() => onWhatsApp("webp")} disabled={!src || !!busy}>
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7" /><path d="M12 3v12M7 8l5-5 5 5" /></svg>
@@ -669,8 +683,8 @@ export default function StickerApp() {
           <button
             className="btn btn-main"
             type="button"
-            aria-label={isVideo(src) ? "Video olarak indir" : "Sticker'ı indir"}
-            onClick={() => onDownload(isVideo(src) ? "mp4" : "webp")}
+            aria-label={isVideo(src) ? "Video olarak indir" : "Sticker'ı fotoğraf olarak kaydet"}
+            onClick={() => (isVideo(src) ? onDownload("mp4") : onSavePhoto())}
             disabled={!!busy}
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M12 4v11M7 10l5 5 5-5" /><path d="M5 20h14" /></svg>
@@ -697,7 +711,7 @@ export default function StickerApp() {
                 {sheetMade.format === "mp4" ? (sheet.downloaded ? "Videon indi!" : "GIF'in hazır!") : sheet.downloaded ? "Sticker'ın indi!" : "Sticker'ın hazır!"}
               </h2>
               <p>
-                {sheetMade.format === "mp4" ? "gif.mp4" : "sticker.webp"} · {sheetMade.res.kb} KB{sheet.downloaded ? " cihazına kaydedildi." : "."}{" "}
+                {sheetMade.format === "mp4" ? "gif.mp4" : `sticker.${sheetMade.format}`} · {sheetMade.res.kb} KB{sheet.downloaded ? " cihazına kaydedildi." : "."}{" "}
                 {sheetMade.format === "mp4"
                   ? "WhatsApp'ta GIF'i kendine ya da herhangi birine gönder. Sonra GIF'e dokunup paylaş düğmesinden \"Çıkartma oluştur\"u seç. İstersen çıkartmayı favorilerine ekleyebilirsin."
                   : "WhatsApp'ta resmi kendine ya da herhangi birine gönder. Sonra resme dokunup paylaş düğmesinden \"Çıkartma oluştur\"u seç. İstersen çıkartmayı favorilerine ekleyebilirsin."}
