@@ -19,7 +19,7 @@ import {
   type Crop,
   type StickerResult,
 } from "@/lib/client/sticker";
-import { downloadBlob, saveAsPhoto, shareToWhatsApp } from "@/lib/client/share";
+import { downloadBlob, saveToGallery, shareToWhatsApp } from "@/lib/client/share";
 import Intro from "./Intro";
 
 const INTRO_KEY = "yapistir:intro-seen";
@@ -365,12 +365,14 @@ export default function StickerApp() {
     setSheet({ format: m.format, downloaded: true });
   };
 
-  const onSavePhoto = async () => {
-    const m = await generate("png");
+  // Images save as PNG, videos as MP4: the formats phone galleries accept.
+  const onSaveToGallery = async () => {
+    const m = await generate(videoMode ? "mp4" : "png");
     if (!m) return;
-    const out = await saveAsPhoto(m.res.blob, m.name);
-    if (out === "shared") say("Kaydettiysen WhatsApp'ta kendine gönder, sonra paylaş düğmesinden \"Çıkartma oluştur\"u seç.");
-    else if (out === "downloaded") setSheet({ format: "png", downloaded: true });
+    const out = await saveToGallery(m.res.blob, m.name);
+    const what = m.format === "mp4" ? "videoyu" : "resmi";
+    if (out === "shared") say(`Kaydettiysen WhatsApp'ta ${what} kendine gönder, sonra paylaş düğmesinden "Çıkartma oluştur"u seç.`);
+    else if (out === "downloaded") setSheet({ format: m.format, downloaded: true });
   };
 
   const onWhatsApp = async (f: Format) => {
@@ -655,16 +657,16 @@ export default function StickerApp() {
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7" /><path d="M12 3v12M7 8l5-5 5 5" /></svg>
                   WhatsApp&apos;ta GIF olarak gönder
                 </button>
-                <button className="btn btn-main btn-big" type="button" onClick={() => onDownload("webp")} disabled={!src || !!busy}>
+                <button className="btn btn-main btn-big" type="button" onClick={onSaveToGallery} disabled={!src || !!busy}>
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M12 4v11M7 10l5 5 5-5" /><path d="M5 20h14" /></svg>
-                  Sticker&apos;ı indir (.webp)
+                  Sticker&apos;ı video olarak kaydet
                 </button>
-                <button className="btn-link" type="button" onClick={() => onDownload("mp4")} disabled={!src || !!busy}>Video olarak indir (.mp4)</button>
+                <button className="btn-link" type="button" onClick={() => onDownload("webp")} disabled={!src || !!busy}>WhatsApp Web için sticker dosyası (.webp)</button>
                 <p className="note">WhatsApp&apos;ta GIF&apos;i kendine ya da herhangi birine gönder. Sonra GIF&apos;e dokunup paylaş düğmesinden &quot;Çıkartma oluştur&quot;u seç. İstersen çıkartmayı favorilerine ekleyebilirsin.</p>
               </>
             ) : (
               <>
-                <button className="btn btn-main btn-big" type="button" onClick={onSavePhoto} disabled={!src || !!busy}>
+                <button className="btn btn-main btn-big" type="button" onClick={onSaveToGallery} disabled={!src || !!busy}>
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M12 4v11M7 10l5 5 5-5" /><path d="M5 20h14" /></svg>
                   Sticker&apos;ı fotoğraf olarak kaydet
                 </button>
@@ -710,8 +712,8 @@ export default function StickerApp() {
           <button
             className="btn btn-main"
             type="button"
-            aria-label={videoMode ? "Video olarak indir" : "Sticker'ı fotoğraf olarak kaydet"}
-            onClick={() => (videoMode ? onDownload("mp4") : onSavePhoto())}
+            aria-label={videoMode ? "Sticker'ı video olarak kaydet" : "Sticker'ı fotoğraf olarak kaydet"}
+            onClick={onSaveToGallery}
             disabled={!src || !!busy}
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M12 4v11M7 10l5 5 5-5" /><path d="M5 20h14" /></svg>
@@ -737,7 +739,7 @@ export default function StickerApp() {
             )}
             <div>
               <h2 id="sheetTitle">
-                {sheetMade.format === "mp4" ? (sheet.downloaded ? "Videon indi!" : "GIF'in hazır!") : sheet.downloaded ? "Sticker'ın indi!" : "Sticker'ın hazır!"}
+                {sheetMade.format === "mp4" ? (sheet.downloaded ? "Videon kaydedildi!" : "GIF'in hazır!") : sheet.downloaded ? (sheetMade.format === "png" ? "Sticker'ın kaydedildi!" : "Sticker'ın indi!") : "Sticker'ın hazır!"}
               </h2>
               <p>
                 {sheetMade.format === "mp4" ? "gif.mp4" : `sticker.${sheetMade.format}`} · {sheetMade.res.kb} KB{sheet.downloaded ? " cihazına kaydedildi." : "."}{" "}

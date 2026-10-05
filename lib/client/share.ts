@@ -43,11 +43,11 @@ function isIOS() {
 }
 
 /**
- * Puts the image into the phone's photo gallery so WhatsApp can pick it up.
- * iPhone: downloads land in Files, so open the share sheet ("Save Image" goes to Photos).
+ * Puts the image or video into the phone's gallery so WhatsApp can pick it up.
+ * iPhone: downloads land in Files, so open the share sheet ("Save Image" / "Save Video" go to Photos).
  * Android and desktop: a normal download shows up in the gallery / Downloads.
  */
-export async function saveAsPhoto(blob: Blob, filename: string): Promise<ShareOutcome> {
+export async function saveToGallery(blob: Blob, filename: string): Promise<ShareOutcome> {
   if (isIOS() && canShareFiles(blob, filename)) {
     try {
       await navigator.share({ files: [new File([blob], filename, { type: blob.type })] });
