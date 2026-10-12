@@ -86,6 +86,7 @@ const tr = {
   specAnimated: "hareketli",
   specLength: "süre",
   specFormat: "format",
+  contact: "Görüş, öneri ve iletişim için:",
   footer: "Dönüştürme senin cihazında yapılır, dosyaların sunucuya yüklenmez. Yalnızca paylaşma hakkın olan içeriklerden sticker yap.",
 
   // sheet
@@ -209,6 +210,7 @@ const en: Dict = {
   specAnimated: "animated",
   specLength: "length",
   specFormat: "format",
+  contact: "Feedback, ideas or questions:",
   footer: "Conversion happens on your device; your files are never uploaded. Only make stickers from content you have the right to share.",
 
   close: "Close",

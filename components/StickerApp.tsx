@@ -24,6 +24,7 @@ import { DICTS, LANG_KEY, LANGS, detectLang, msg, setCurrentLang, type Lang } fr
 import Intro from "./Intro";
 
 const INTRO_KEY = "yapistir:intro-seen";
+const CONTACT_EMAIL = "info@stickeryap.com.tr";
 
 type Source = {
   item: MediaItem;
@@ -725,7 +726,12 @@ export default function StickerApp() {
         <span className="spec">{t.specFormat} <b>WebP</b></span>
       </div>
 
-      <footer>{t.footer}</footer>
+      <footer>
+        <p>{t.footer}</p>
+        <p className="contact">
+          {t.contact} <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>
+        </p>
+      </footer>
 
       {tweet && (
         <div className="mobile-bar">
