@@ -1,5 +1,6 @@
 "use client";
 
+import { msg } from "@/lib/i18n";
 import { getFFmpeg } from "./ffmpeg";
 
 // WhatsApp sticker rules
@@ -95,8 +96,8 @@ export async function removeBackground(source: Blob, onProgress?: Progress): Pro
     model: "isnet_quint8",
     output: { format: "image/png" },
     progress: (key, cur, total) => {
-      if (key.startsWith("fetch")) onProgress?.("Arka plan modeli indiriliyor (yalnızca ilk sefer)", total ? cur / total : undefined);
-      else onProgress?.("Arka plan siliniyor");
+      if (key.startsWith("fetch")) onProgress?.(msg().bgModel, total ? cur / total : undefined);
+      else onProgress?.(msg().bgRemoving);
     },
   });
   return createImageBitmap(out);
@@ -147,14 +148,14 @@ async function canvasWebp(c: HTMLCanvasElement, q: number): Promise<Blob | null>
 }
 
 export async function encodeStatic(canvas: HTMLCanvasElement, onProgress?: Progress): Promise<StickerResult> {
-  onProgress?.("Sticker hazırlanıyor");
+  onProgress?.(msg().stickerPreparing);
   for (const q of [0.9, 0.8, 0.7, 0.6, 0.5, 0.4]) {
     const b = await canvasWebp(canvas, q);
     if (!b) break;
-    if (b.size <= MAX_STATIC_KB * 1024) return { blob: b, kb: Math.ceil(b.size / 1024), note: "Statik WebP · 512×512" };
+    if (b.size <= MAX_STATIC_KB * 1024) return { blob: b, kb: Math.ceil(b.size / 1024), note: msg().noteStatic };
   }
   // Browser can't encode WebP (Safari) or file is still too big: use ffmpeg.
-  onProgress?.("Dönüştürücü yükleniyor");
+  onProgress?.(msg().converterLoading);
   const ff = await getFFmpeg();
   const png = await new Promise<Blob>((r) => canvas.toBlob((b) => r(b!), "image/png"));
   await ff.writeFile("in.png", new Uint8Array(await png.arrayBuffer()));
@@ -166,7 +167,7 @@ export async function encodeStatic(canvas: HTMLCanvasElement, onProgress?: Progr
   }
   await ff.deleteFile("in.png").catch(() => {});
   const blob = new Blob([last as BlobPart], { type: "image/webp" });
-  return { blob, kb: Math.ceil(blob.size / 1024), note: "Statik WebP · 512×512" };
+  return { blob, kb: Math.ceil(blob.size / 1024), note: msg().noteStatic };
 }
 
 /* ---------- WhatsApp GIF (short square mp4) ---------- */
@@ -179,12 +180,12 @@ export async function makeMp4(
   o: { start: number; length: number; crop: Crop; caption: string },
   onProgress?: Progress,
 ): Promise<StickerResult> {
-  onProgress?.("Dönüştürücü yükleniyor (ilk sefer ~30 MB)");
+  onProgress?.(msg().converterFirst);
   const ff = await getFFmpeg();
   await ff.writeFile("in.mp4", new Uint8Array(await video.arrayBuffer()));
   const cap = await captionPng(o.caption);
   if (cap) await ff.writeFile("cap.png", new Uint8Array(await cap.arrayBuffer()));
-  const onFF = ({ progress }: { progress: number }) => onProgress?.("Video hazırlanıyor", Math.max(0, Math.min(1, progress)));
+  const onFF = ({ progress }: { progress: number }) => onProgress?.(msg().videoPreparing, Math.max(0, Math.min(1, progress)));
   ff.on("progress", onFF);
   try {
     const { x, y, size } = o.crop;
@@ -199,10 +200,10 @@ export async function makeMp4(
       "-movflags", "+faststart", "out.mp4",
     ]);
     const out = (await ff.readFile("out.mp4")) as Uint8Array;
-    if (!out.byteLength) throw new Error("Video hazırlanamadı.");
+    if (!out.byteLength) throw new Error(msg().videoFailed);
     const blob = new Blob([out as BlobPart], { type: "video/mp4" });
-    const cut = o.length > MAX_GIF_SECONDS ? ` (GIF için ${MAX_GIF_SECONDS} sn'ye kısaltıldı)` : "";
-    return { blob, kb: Math.ceil(blob.size / 1024), note: `Sessiz MP4 · 512×512 · WhatsApp'ta GIF olarak gider${cut}` };
+    const note = msg().noteMp4(o.length > MAX_GIF_SECONDS ? MAX_GIF_SECONDS : undefined);
+    return { blob, kb: Math.ceil(blob.size / 1024), note };
   } finally {
     ff.off("progress", onFF);
     await ff.deleteFile("in.mp4").catch(() => {});
@@ -235,7 +236,7 @@ export async function makeAnimated(
   o: { start: number; length: number; crop: Crop; caption: string },
   onProgress?: Progress,
 ): Promise<StickerResult> {
-  onProgress?.("Dönüştürücü yükleniyor (ilk sefer ~30 MB)");
+  onProgress?.(msg().converterFirst);
   const ff = await getFFmpeg();
   await ff.writeFile("in.mp4", new Uint8Array(await video.arrayBuffer()));
   const cap = await captionPng(o.caption);
@@ -245,7 +246,7 @@ export async function makeAnimated(
   const cropF = `crop=${Math.floor(size)}:${Math.floor(size)}:${Math.floor(x)}:${Math.floor(y)}`;
   let pass = 0;
   const onFF = ({ progress }: { progress: number }) =>
-    onProgress?.(pass === 0 ? "Sticker hazırlanıyor" : "WhatsApp sınırına sığdırılıyor", Math.max(0, Math.min(1, progress)));
+    onProgress?.(pass === 0 ? msg().stickerPreparing : msg().fitting, Math.max(0, Math.min(1, progress)));
   ff.on("progress", onFF);
 
   try {
@@ -271,13 +272,12 @@ export async function makeAnimated(
       i = next;
       pass++;
     }
-    if (!out || out.byteLength === 0) throw new Error("Dönüştürme başarısız oldu.");
+    if (!out || out.byteLength === 0) throw new Error(msg().convertFailed);
     if (out.byteLength > MAX_ANIMATED_KB * 1024) {
-      throw new Error("Bu bölüm WhatsApp'ın 500 KB sınırına sığmadı. Daha kısa bir süre seç.");
+      throw new Error(msg().tooBig);
     }
     const blob = new Blob([out as BlobPart], { type: "image/webp" });
-    const slowed = used.fps < 15 ? " (sığması için kare hızı düşürüldü)" : "";
-    return { blob, kb: Math.ceil(blob.size / 1024), note: `Hareketli WebP · 512×512 · ${used.fps} fps${slowed}` };
+    return { blob, kb: Math.ceil(blob.size / 1024), note: msg().noteAnimated(used.fps, used.fps < 15) };
   } finally {
     ff.off("progress", onFF);
     await ff.deleteFile("in.mp4").catch(() => {});

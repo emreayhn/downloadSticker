@@ -20,6 +20,7 @@ import {
   type StickerResult,
 } from "@/lib/client/sticker";
 import { downloadBlob, saveToGallery, shareToWhatsApp } from "@/lib/client/share";
+import { DICTS, LANG_KEY, LANGS, detectLang, msg, setCurrentLang, type Lang } from "@/lib/i18n";
 import Intro from "./Intro";
 
 const INTRO_KEY = "yapistir:intro-seen";
@@ -41,7 +42,6 @@ type Made = { key: string; format: Format; res: StickerResult; url: string; name
 const LENGTHS = [2, 3, 5, 8];
 
 const isVideo = (s: Source | null) => !!s && s.item.kind !== "image";
-const fmt = (n: number) => n.toFixed(1).replace(".", ",");
 
 function centerCrop(w: number, h: number): Crop {
   const size = Math.min(w, h);
@@ -55,7 +55,7 @@ function loadVideoMeta(url: string): Promise<{ w: number; h: number; duration: n
     v.preload = "metadata";
     v.muted = true;
     v.onloadedmetadata = () => resolve({ w: v.videoWidth, h: v.videoHeight, duration: v.duration });
-    v.onerror = () => reject(new Error("Video açılamadı."));
+    v.onerror = () => reject(new Error(msg().videoOpenFail));
     v.src = url;
   });
 }
@@ -80,6 +80,8 @@ export default function StickerApp() {
   const [sheet, setSheet] = useState<null | { format: Format; downloaded: boolean }>(null);
   const [toast, setToast] = useState("");
   const [intro, setIntro] = useState(false);
+  const [lang, setLang] = useState<Lang>("tr");
+  const t = DICTS[lang];
 
   const stageRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -98,19 +100,38 @@ export default function StickerApp() {
     toastTimer.current = setTimeout(() => setToast(""), 5000);
   }, []);
 
+  const changeLang = useCallback((l: Lang, remember: boolean) => {
+    setCurrentLang(l);
+    setLang(l);
+    document.documentElement.lang = l;
+    if (remember) {
+      try {
+        localStorage.setItem(LANG_KEY, l);
+      } catch {}
+    }
+  }, []);
+
+  // The page is rendered in Turkish; switch once we know the visitor's language.
+  useEffect(() => {
+    const l = detectLang();
+    if (l === "tr") return;
+    const tm = setTimeout(() => changeLang(l, false));
+    return () => clearTimeout(tm);
+  }, [changeLang]);
+
   /* ---------- loading a tweet and its media ---------- */
 
   // Background removal runs once per image, the first time it is needed.
   const startCutout = useCallback((s: Source) => {
     const token = loadToken.current;
     const alive = () => token === loadToken.current;
-    setCutoutBusy({ label: "Arka plan siliniyor" });
+    setCutoutBusy({ label: msg().bgRemoving });
     removeBackground(s.blob, (label, ratio) => alive() && setCutoutBusy({ label, ratio }))
       .then((bmp) => alive() && setCutoutBmp(bmp))
       .catch(() => {
         if (!alive()) return;
         setCutout(false);
-        say("Arka plan silinemedi. Resmi olduğu gibi kullanabilirsin.");
+        say(msg().bgFailed);
       })
       .finally(() => alive() && setCutoutBusy(null));
   }, [say]);
@@ -145,7 +166,7 @@ export default function StickerApp() {
       setSrc(next);
       if (next.item.kind === "image" && cutoutWanted.current) startCutout(next);
     } catch {
-      if (token === loadToken.current) say("Medya indirilemedi. Bağlantını kontrol edip tekrar dene.");
+      if (token === loadToken.current) say(msg().mediaFailed);
     } finally {
       if (token === loadToken.current) setSrcProgress(null);
     }
@@ -154,22 +175,25 @@ export default function StickerApp() {
   const resolve = useCallback(async (value: string) => {
     if (!parseTweetId(value)) {
       setPhase("error");
-      setError('Bu bir X gönderi linki gibi durmuyor. Link "x.com/kullanici/status/123…" şeklinde olmalı.');
+      setError(msg().errBadLink);
       return;
     }
     setPhase("resolving");
     setError("");
     try {
       const res = await fetch(`/api/resolve?url=${encodeURIComponent(value)}`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Gönderi okunamadı.");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const m = msg();
+        throw new Error(({ 400: m.errBadLink, 404: m.errNotFound, 422: m.errNoMedia, 502: m.errUpstream } as Record<number, string>)[res.status] ?? m.errRead);
+      }
       setTweet(data);
       setPhase("ready");
       setCaption("");
       selectMedia(data, 0);
     } catch (e) {
       setPhase("error");
-      setError(e instanceof Error ? e.message : "Gönderi okunamadı.");
+      setError(e instanceof Error ? e.message : msg().errRead);
     }
   }, [selectMedia]);
 
@@ -321,10 +345,10 @@ export default function StickerApp() {
     const cached = freshFor(format);
     if (cached) return cached;
     if (!isVideo(src) && cutout && !cutoutBmp) {
-      say("Arka plan silme bitmeden sticker hazırlanamaz. Birkaç saniye bekle.");
+      say(t.waitCutout);
       return null;
     }
-    setBusy({ label: "Hazırlanıyor" });
+    setBusy({ label: t.preparing });
     try {
       let res: StickerResult;
       const onP = (label: string, ratio?: number) => setBusy({ label, ratio });
@@ -338,7 +362,7 @@ export default function StickerApp() {
         if (format === "png") {
           // PNG, because phone galleries (iPhone Photos in particular) do not accept WebP.
           const blob = await new Promise<Blob>((r) => c.toBlob((b) => r(b!), "image/png"));
-          res = { blob, kb: Math.ceil(blob.size / 1024), note: "PNG · 512×512 · galeriye kaydedilir" };
+          res = { blob, kb: Math.ceil(blob.size / 1024), note: t.notePng };
         } else {
           res = await encodeStatic(c, onP);
         }
@@ -351,7 +375,7 @@ export default function StickerApp() {
       return m;
     } catch (e) {
       console.error("sticker failed", e);
-      say(e instanceof Error && e.message ? e.message : "Sticker hazırlanamadı. Tekrar dene.");
+      say(e instanceof Error && e.message ? e.message : t.stickerFailed);
       return null;
     } finally {
       setBusy(null);
@@ -370,8 +394,7 @@ export default function StickerApp() {
     const m = await generate(videoMode ? "mp4" : "png");
     if (!m) return;
     const out = await saveToGallery(m.res.blob, m.name);
-    const what = m.format === "mp4" ? "videoyu" : "resmi";
-    if (out === "shared") say(`Kaydettiysen WhatsApp'ta ${what} kendine gönder, sonra paylaş düğmesinden "Çıkartma oluştur"u seç.`);
+    if (out === "shared") say(t.savedHint(m.format === "mp4"));
     else if (out === "downloaded") setSheet({ format: m.format, downloaded: true });
   };
 
@@ -386,13 +409,9 @@ export default function StickerApp() {
     const out = await shareToWhatsApp(m.res.blob, m.name, downloaded);
     setSheet(null);
     if (out === "shared") {
-      say(m.format === "mp4"
-        ? "Gönderildi. Şimdi GIF'e dokun, paylaş düğmesinden \"Çıkartma oluştur\"u seç."
-        : "Gönderildi. Şimdi resme dokun, paylaş düğmesinden \"Çıkartma oluştur\"u seç.");
+      say(m.format === "mp4" ? t.sentGif : t.sentImage);
     } else if (out === "downloaded") {
-      say(m.format === "mp4"
-        ? "Video indi ve WhatsApp Web açıldı. Videoyu sohbete sürükleyip bırakabilirsin."
-        : "Dosya indi ve WhatsApp Web açıldı. Sohbete sürükleyip bırakınca sticker olarak gider.");
+      say(m.format === "mp4" ? t.webVideo : t.webFile);
     }
   };
 
@@ -412,11 +431,11 @@ export default function StickerApp() {
       const w = freshFor("webp"), g = freshFor("mp4");
       if (g && !w) return { kb: g.res.kb, max: 0, note: g.res.note };
       const kb = w ? w.res.kb : estimateAnimatedKb(len);
-      return { kb, max: MAX_ANIMATED_KB, note: w ? w.res.note : "Sticker: hareketli WebP · 512×512 · tahmini boyut" };
+      return { kb, max: MAX_ANIMATED_KB, note: w ? w.res.note : t.estAnimated };
     }
     const w = freshFor("webp");
     const kb = w ? w.res.kb : useCut ? 40 : 70;
-    return { kb, max: MAX_STATIC_KB, note: w ? w.res.note : `Statik WebP · 512×512${useCut ? " · şeffaf arka plan" : ""} · tahmini` };
+    return { kb, max: MAX_STATIC_KB, note: w ? w.res.note : t.estStatic(useCut) };
   })();
   const sheetMade = sheet ? freshFor(sheet.format) : null;
 
@@ -427,10 +446,11 @@ export default function StickerApp() {
 
   const stageW = src ? `min(100%, ${(440 * src.w) / src.h}px)` : undefined;
   const statusText =
-    phase === "resolving" ? "Gönderi okunuyor…"
+    phase === "resolving" ? t.statusResolving
       : phase === "error" ? error
-      : tweet ? `@${tweet.author} gönderisinde ${tweet.media.length} medya bulundu.`
-      : "Linki yapıştırman yeterli, gerisini sayfa halleder.";
+      : tweet ? t.statusFound(tweet.author, tweet.media.length)
+      : t.statusIdle;
+  const fmt = t.num;
 
   return (
     <div className={`wrap${src ? " has-bar" : ""}`}>
@@ -441,12 +461,21 @@ export default function StickerApp() {
           </span>
           Yapıştır
         </span>
-        <button className="help-btn" type="button" onClick={() => setIntro(true)}>Nasıl çalışır?</button>
+        <div className="top-actions">
+          <div className="lang-switch" role="group" aria-label={t.langLabel}>
+            {LANGS.map((l) => (
+              <button key={l} type="button" lang={l} aria-pressed={l === lang} onClick={() => changeLang(l, true)}>
+                {l.toUpperCase()}
+              </button>
+            ))}
+          </div>
+          <button className="help-btn" type="button" onClick={() => setIntro(true)}>{t.help}</button>
+        </div>
       </header>
 
       <section className="hero">
-        <h1>X linkini yapıştır, <span className="stk">sticker</span> hazır.</h1>
-        <p className="lede">Videoyu ya da resmi telefonuna indirmen gerekmiyor. Linki ver, en komik saniyeyi seç, WhatsApp&apos;a gönder.</p>
+        <h1>{t.heroA}<span className="stk">sticker</span>{t.heroB}</h1>
+        <p className="lede">{t.lede}</p>
       </section>
 
       <form
@@ -465,7 +494,7 @@ export default function StickerApp() {
             inputMode="url"
             value={link}
             placeholder="https://x.com/…/status/…"
-            aria-label="X gönderi linki"
+            aria-label={t.linkAria}
             onChange={(e) => setLink(e.target.value)}
             onPaste={(e) => {
               const text = e.clipboardData.getData("text");
@@ -478,7 +507,7 @@ export default function StickerApp() {
           />
         </label>
         <button className="btn btn-main" type="submit" disabled={phase === "resolving"}>
-          {phase === "resolving" ? "Okunuyor…" : "Sticker yap"}
+          {phase === "resolving" ? t.reading : t.make}
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
         </button>
       </form>
@@ -487,8 +516,8 @@ export default function StickerApp() {
       <section className="work">
         <div className="panel">
           <div className="row">
-            <h2>Gönderideki medya</h2>
-            {tweet && tweet.media.length > 1 && <span className="lbl">Birini seç</span>}
+            <h2>{t.mediaTitle}</h2>
+            {tweet && tweet.media.length > 1 && <span className="lbl">{t.pickOne}</span>}
           </div>
 
           {tweet && (
@@ -498,7 +527,7 @@ export default function StickerApp() {
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={m.thumb} alt="" referrerPolicy="no-referrer" />
                   <span className="tag">
-                    {m.kind === "image" ? "Resim" : m.kind === "gif" ? "GIF" : `▶ ${m.duration ? `${Math.floor(m.duration / 60)}:${String(Math.round(m.duration % 60)).padStart(2, "0")}` : "Video"}`}
+                    {m.kind === "image" ? t.kindImage : m.kind === "gif" ? "GIF" : `▶ ${m.duration ? `${Math.floor(m.duration / 60)}:${String(Math.round(m.duration % 60)).padStart(2, "0")}` : t.kindVideo}`}
                   </span>
                 </button>
               ))}
@@ -511,12 +540,12 @@ export default function StickerApp() {
                 <video ref={videoRef} src={src.url} muted playsInline loop autoPlay />
               ) : (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={src.url} alt="Seçilen resim" />
+                <img src={src.url} alt={t.selectedImage} />
               )}
               <div
                 className="crop"
                 tabIndex={0}
-                aria-label="Kare kırpma alanı. Ok tuşlarıyla kaydır."
+                aria-label={t.cropAria}
                 style={{
                   left: `${(crop.x / src.w) * 100}%`,
                   top: `${(crop.y / src.h) * 100}%`,
@@ -532,24 +561,24 @@ export default function StickerApp() {
                   moveCrop(d[0] / (src.w / stageRef.current.clientWidth), d[1] / (src.w / stageRef.current.clientWidth));
                 }}
               >
-                <span>Sürükle · kare alan</span>
+                <span>{t.cropHint}</span>
               </div>
             </div>
           ) : (
             <div className="stage-empty">
               {srcProgress !== null
-                ? `Medya indiriliyor… %${Math.round(srcProgress * 100)}`
+                ? t.downloading(t.pct(srcProgress))
                 : phase === "resolving"
-                  ? "Gönderi okunuyor…"
-                  : "Linki yapıştırınca gönderideki resim ve videolar burada görünür."}
+                  ? t.statusResolving
+                  : t.emptyStage}
             </div>
           )}
 
           {src && isVideo(src) && (
             <div className="timeline">
               <div className="row">
-                <span className="lbl">Hangi saniyeler?</span>
-                <span className="lbl">{fmt(start)} – {fmt(start + len)} sn</span>
+                <span className="lbl">{t.whichSeconds}</span>
+                <span className="lbl">{fmt(start)} – {fmt(start + len)} {t.sec}</span>
               </div>
               <div className="strip" ref={stripRef}>
                 <canvas ref={stripCanvas} width={800} height={70} />
@@ -558,7 +587,7 @@ export default function StickerApp() {
                   style={{ left: `${(start / src.duration) * 100}%`, width: `${(len / src.duration) * 100}%` }}
                   onPointerDown={(e) => drag((dx) => moveWindow(dx))(e)}
                   tabIndex={0}
-                  aria-label="Seçili bölüm. Ok tuşlarıyla kaydır."
+                  aria-label={t.windowAria}
                   onKeyDown={(e) => {
                     if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
                     e.preventDefault();
@@ -580,7 +609,7 @@ export default function StickerApp() {
                       setStart((s) => Math.max(0, Math.min(s, src.duration - n)));
                     }}
                   >
-                    {fmt(n).replace(",0", "")} sn
+                    {fmt(n).replace(/[.,]0$/, "")} {t.sec}
                   </button>
                 ))}
               </div>
@@ -590,11 +619,11 @@ export default function StickerApp() {
           {src && !isVideo(src) && (
             <div className="toggle">
               <div>
-                <b>Arka planı sil</b>
+                <b>{t.bgTitle}</b>
                 <small>
                   {cutoutBusy
-                    ? `${cutoutBusy.label}${cutoutBusy.ratio !== undefined ? ` · %${Math.round(cutoutBusy.ratio * 100)}` : "…"}`
-                    : "Karakteri keser, kenarına beyaz çizgi ekler"}
+                    ? `${cutoutBusy.label}${cutoutBusy.ratio !== undefined ? ` · ${t.pct(cutoutBusy.ratio)}` : "…"}`
+                    : t.bgHint}
                 </small>
               </div>
               <input type="checkbox" className="switch" id="bgOff" checked={cutout} disabled={!!cutoutBusy} onChange={(e) => {
@@ -602,28 +631,28 @@ export default function StickerApp() {
                   setCutout(on);
                   cutoutWanted.current = on;
                   if (on && !cutoutBmp && !cutoutBusy) startCutout(src);
-                }} aria-label="Arka planı sil" />
+                }} aria-label={t.bgTitle} />
             </div>
           )}
 
           {src && (
             <div className="field">
-              <label className="lbl" htmlFor="caption">Üstüne yazı (isteğe bağlı)</label>
-              <input type="text" id="caption" maxLength={28} value={caption} placeholder="ör. PAZARTESİ ÖZETİ" onChange={(e) => setCaption(e.target.value.toLocaleUpperCase("tr-TR"))} />
+              <label className="lbl" htmlFor="caption">{t.captionLabel}</label>
+              <input type="text" id="caption" maxLength={28} value={caption} placeholder={t.captionPh} onChange={(e) => setCaption(e.target.value.toLocaleUpperCase(t.locale))} />
             </div>
           )}
         </div>
 
         <aside className="panel">
-          <h2>Sohbette böyle görünecek</h2>
+          <h2>{t.previewTitle}</h2>
           <div className="chat">
-            <div className="msg">Bu tweeti gördün mü?<time>21:46</time></div>
-            <div className="msg me">Sticker yaptım bile<time>21:47</time></div>
+            <div className="msg">{t.chat1}<time>21:46</time></div>
+            <div className="msg me">{t.chat2}<time>21:47</time></div>
             <div className="sticker-wrap">
               {src ? (
                 <canvas ref={previewRef} width={SIZE} height={SIZE} className={`preview ${useCut ? "cut" : "boxed"}`} />
               ) : (
-                <div className="preview-empty">Sticker&apos;ın burada belirecek</div>
+                <div className="preview-empty">{t.previewEmpty}</div>
               )}
               <time>21:47 ✓✓</time>
             </div>
@@ -632,7 +661,7 @@ export default function StickerApp() {
           {meter && (
             <div className="meter">
               <div className="row">
-                <span className="lbl">Dosya boyutu</span>
+                <span className="lbl">{t.fileSize}</span>
                 <span>{meter.max ? `${meter.kb} / ${meter.max} KB` : `${meter.kb} KB`}</span>
               </div>
               {meter.max > 0 && (
@@ -647,7 +676,7 @@ export default function StickerApp() {
           <div className="actions">
             {busy && (
               <div className="busy" role="status">
-                <span className="note">{busy.label}{busy.ratio !== undefined ? ` · %${Math.round(busy.ratio * 100)}` : "…"}</span>
+                <span className="note">{busy.label}{busy.ratio !== undefined ? ` · ${t.pct(busy.ratio)}` : "…"}</span>
                 <div className="bar"><i style={{ width: `${(busy.ratio ?? 0.08) * 100}%` }} /></div>
               </div>
             )}
@@ -655,64 +684,64 @@ export default function StickerApp() {
               <>
                 <button className="btn btn-wa" type="button" onClick={() => onWhatsApp("mp4")} disabled={!src || !!busy}>
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7" /><path d="M12 3v12M7 8l5-5 5 5" /></svg>
-                  WhatsApp&apos;ta GIF olarak gönder
+                  {t.sendGif}
                 </button>
                 <button className="btn btn-main btn-big" type="button" onClick={onSaveToGallery} disabled={!src || !!busy}>
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M12 4v11M7 10l5 5 5-5" /><path d="M5 20h14" /></svg>
-                  Sticker&apos;ı fotoğraf olarak kaydet
+                  {t.savePhoto}
                 </button>
-                <button className="btn-link" type="button" onClick={() => onDownload("webp")} disabled={!src || !!busy}>WhatsApp Web için sticker dosyası (.webp)</button>
-                <p className="note">WhatsApp&apos;ta GIF&apos;i kendine ya da herhangi birine gönder. Sonra GIF&apos;e dokunup paylaş düğmesinden &quot;Çıkartma oluştur&quot;u seç. İstersen çıkartmayı favorilerine ekleyebilirsin.</p>
+                <button className="btn-link" type="button" onClick={() => onDownload("webp")} disabled={!src || !!busy}>{t.webpFile}</button>
+                <p className="note">{t.noteGif}</p>
               </>
             ) : (
               <>
                 <button className="btn btn-main btn-big" type="button" onClick={onSaveToGallery} disabled={!src || !!busy}>
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M12 4v11M7 10l5 5 5-5" /><path d="M5 20h14" /></svg>
-                  Sticker&apos;ı fotoğraf olarak kaydet
+                  {t.savePhoto}
                 </button>
                 <button className="btn btn-wa" type="button" onClick={() => onWhatsApp("webp")} disabled={!src || !!busy}>
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7" /><path d="M12 3v12M7 8l5-5 5 5" /></svg>
-                  WhatsApp&apos;ta fotoğraf olarak gönder
+                  {t.sendPhoto}
                 </button>
-                <p className="note">WhatsApp&apos;ta resmi kendine ya da herhangi birine gönder. Sonra resme dokunup paylaş düğmesinden &quot;Çıkartma oluştur&quot;u seç. İstersen çıkartmayı favorilerine ekleyebilirsin.</p>
+                <p className="note">{t.noteImage}</p>
               </>
             )}
           </div>
         </aside>
       </section>
 
-      <section className="how" aria-label="Nasıl çalışır">
-        <div className="step"><span className="n">1</span><div><h3>Linki yapıştır</h3><p>X&apos;te gönderinin altındaki paylaş düğmesinden &quot;Linki kopyala&quot; de.</p></div></div>
-        <div className="step"><span className="n">2</span><div><h3>Seç ve kırp</h3><p>Videoda en iyi 2-3 saniyeyi, resimde kare alanı seç. İstersen yazı ekle.</p></div></div>
-        <div className="step"><span className="n">3</span><div><h3>WhatsApp&apos;a gönder</h3><p>GIF&apos;i kendine ya da birine gönder, paylaş düğmesinden &quot;Çıkartma oluştur&quot;u seç.</p></div></div>
+      <section className="how" aria-label={t.help}>
+        <div className="step"><span className="n">1</span><div><h3>{t.step1}</h3><p>{t.step1Short}</p></div></div>
+        <div className="step"><span className="n">2</span><div><h3>{t.step2}</h3><p>{t.step2Short}</p></div></div>
+        <div className="step"><span className="n">3</span><div><h3>{t.step3}</h3><p>{t.step3Short}</p></div></div>
       </section>
 
-      <div className="specs" aria-label="WhatsApp sticker kuralları">
-        <span className="lbl">WhatsApp kuralları, otomatik uygulanır:</span>
+      <div className="specs" aria-label={t.specsAria}>
+        <span className="lbl">{t.specsLbl}</span>
         <span className="spec"><b>512×512</b> px</span>
-        <span className="spec">statik <b>≤100 KB</b></span>
-        <span className="spec">hareketli <b>≤500 KB</b></span>
-        <span className="spec">süre <b>≤10 sn</b></span>
-        <span className="spec">format <b>WebP</b></span>
+        <span className="spec">{t.specStatic} <b>≤100 KB</b></span>
+        <span className="spec">{t.specAnimated} <b>≤500 KB</b></span>
+        <span className="spec">{t.specLength} <b>≤10 {t.sec}</b></span>
+        <span className="spec">{t.specFormat} <b>WebP</b></span>
       </div>
 
-      <footer>Dönüştürme senin cihazında yapılır, dosyaların sunucuya yüklenmez. Yalnızca paylaşma hakkın olan içeriklerden sticker yap.</footer>
+      <footer>{t.footer}</footer>
 
       {tweet && (
         <div className="mobile-bar">
           {videoMode ? (
             <button className="btn btn-wa" type="button" onClick={() => onWhatsApp("mp4")} disabled={!src || !!busy}>
-              {busy ? `${busy.label}${busy.ratio !== undefined ? ` · %${Math.round(busy.ratio * 100)}` : "…"}` : "WhatsApp'ta GIF olarak gönder"}
+              {busy ? `${busy.label}${busy.ratio !== undefined ? ` · ${t.pct(busy.ratio)}` : "…"}` : t.sendGif}
             </button>
           ) : (
             <button className="btn btn-wa" type="button" onClick={() => onWhatsApp("webp")} disabled={!src || !!busy}>
-              {busy ? `${busy.label}…` : "WhatsApp'ta fotoğraf olarak gönder"}
+              {busy ? `${busy.label}…` : t.sendPhoto}
             </button>
           )}
           <button
             className="btn btn-main"
             type="button"
-            aria-label={videoMode ? "Sticker'ı video olarak kaydet" : "Sticker'ı fotoğraf olarak kaydet"}
+            aria-label={videoMode ? t.saveVideoAria : t.savePhoto}
             onClick={onSaveToGallery}
             disabled={!src || !!busy}
           >
@@ -723,36 +752,34 @@ export default function StickerApp() {
 
       <div className={`toast${toast ? " show" : ""}`} role="status">{toast}</div>
 
-      {intro && <Intro onClose={closeIntro} />}
+      {intro && <Intro t={t} onClose={closeIntro} />}
 
       {sheet && sheetMade && (
         <div className="sheet-bg" onClick={(e) => e.target === e.currentTarget && setSheet(null)}>
           <div className="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
-            <button className="x" type="button" aria-label="Kapat" onClick={() => setSheet(null)}>
+            <button className="x" type="button" aria-label={t.close} onClick={() => setSheet(null)}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
             </button>
             {sheetMade.format === "mp4" ? (
               <video src={sheetMade.url} className="boxed" autoPlay muted loop playsInline />
             ) : (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={sheetMade.url} alt="Hazırlanan sticker" className={useCut ? "cut" : "boxed"} />
+              <img src={sheetMade.url} alt={t.madeAlt} className={useCut ? "cut" : "boxed"} />
             )}
             <div>
               <h2 id="sheetTitle">
-                {sheetMade.format === "mp4" ? (sheet.downloaded ? "Videon kaydedildi!" : "GIF'in hazır!") : sheet.downloaded ? (sheetMade.format === "png" ? "Sticker'ın kaydedildi!" : "Sticker'ın indi!") : "Sticker'ın hazır!"}
+                {sheetMade.format === "mp4" ? (sheet.downloaded ? t.sheetVideoSaved : t.sheetGifReady) : sheet.downloaded ? (sheetMade.format === "png" ? t.sheetSaved : t.sheetDownloaded) : t.sheetReady}
               </h2>
               <p>
-                {sheetMade.format === "mp4" ? "gif.mp4" : `sticker.${sheetMade.format}`} · {sheetMade.res.kb} KB{sheet.downloaded ? " cihazına kaydedildi." : "."}{" "}
-                {sheetMade.format === "mp4"
-                  ? "WhatsApp'ta GIF'i kendine ya da herhangi birine gönder. Sonra GIF'e dokunup paylaş düğmesinden \"Çıkartma oluştur\"u seç. İstersen çıkartmayı favorilerine ekleyebilirsin."
-                  : "WhatsApp'ta resmi kendine ya da herhangi birine gönder. Sonra resme dokunup paylaş düğmesinden \"Çıkartma oluştur\"u seç. İstersen çıkartmayı favorilerine ekleyebilirsin."}
+                {sheetMade.format === "mp4" ? "gif.mp4" : `sticker.${sheetMade.format}`} · {sheetMade.res.kb} KB{sheet.downloaded ? t.savedToDevice : "."}{" "}
+                {sheetMade.format === "mp4" ? t.noteGif : t.noteImage}
               </p>
             </div>
             <button ref={waRef} className="btn btn-wa" type="button" onClick={() => share(sheetMade, sheet.downloaded)}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7" /><path d="M12 3v12M7 8l5-5 5 5" /></svg>
-              WhatsApp&apos;ta aç
+              {t.openWa}
             </button>
-            <button className="btn-link" type="button" onClick={() => setSheet(null)}>Şimdi değil</button>
+            <button className="btn-link" type="button" onClick={() => setSheet(null)}>{t.notNow}</button>
           </div>
         </div>
       )}

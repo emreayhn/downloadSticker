@@ -223,6 +223,10 @@ footer { font-size: 0.82rem; color: var(--lede); border-top: 1px solid var(--dot
 .intro-go { width: 100%; }
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
 .help-btn { border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 99px; padding: 6px 12px; font-weight: 600; font-size: 0.85rem; cursor: pointer; }
+.top-actions { display: inline-flex; align-items: center; gap: 8px; }
+.lang-switch { display: inline-flex; border: 1px solid var(--line); background: var(--surface); border-radius: 99px; padding: 2px; }
+.lang-switch button { border: 0; background: transparent; color: var(--muted); border-radius: 99px; padding: 4px 9px; font: 600 0.78rem/1 var(--mono); letter-spacing: 0.04em; cursor: pointer; }
+.lang-switch button[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
 @media (max-width: 520px) {
   .intro-bg { align-items: flex-end; padding: 0; }
   .intro { width: 100%; border-radius: 28px 28px 0 0; max-height: 92dvh; padding-bottom: calc(22px + env(safe-area-inset-bottom, 0px)); animation: up 0.32s ease; }
